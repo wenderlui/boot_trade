@@ -5,43 +5,47 @@ import time
 import os
 import streamlit.components.v1 as components
 from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
-# Carrega chaves (Secrets do Streamlit)
+# Carrega chaves
 load_dotenv()
 
-st.set_page_config(page_title="Pocket Play CLOUD", page_icon="💎", layout="wide")
+st.set_page_config(page_title="AI trader CLOUD", page_icon="💎", layout="wide")
 
-# --- CSS PARA CENTRALIZAR E AJUSTAR O LAYOUT ---
+# --- CSS: CENTRALIZAÇÃO E VISUAL ---
 st.markdown("""
 <style>
     /* Fundo Escuro Profundo */
     .stApp { background-color: #0e1117; color: #e0e0e0; }
     
-    /* Centralizar o conteúdo e descer do topo */
+    /* CENTRALIZAÇÃO VERTICAL E HORIZONTAL */
     .block-container {
-        max-width: 1200px;      /* Largura máxima para não esticar demais */
-        padding-top: 4rem;      /* Empurra para baixo (centro da tela) */
-        padding-bottom: 4rem;
-        margin: auto;           /* Centraliza horizontalmente */
+        max-width: 1000px;      /* Largura controlada */
+        padding-top: 8rem;      /* AUMENTEI AQUI: Empurra tudo para baixo */
+        padding-bottom: 5rem;
+        margin: auto;
     }
     
-    /* Estilo dos Cards */
+    /* Estilo dos Cards e Textos */
     div[data-testid="stMetricValue"] { font-size: 22px; color: #00ff00; }
     div[data-testid="stMarkdownContainer"] p { font-size: 16px; }
     
-    /* Botões */
+    /* Botões mais bonitos */
     .stButton > button {
         width: 100%;
         border-radius: 8px;
         background-color: #262730;
         color: white;
+        border: 1px solid #444;
+    }
+    .stButton > button:hover {
+        border-color: #00ff00;
+        color: #00ff00;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONFIGURAÇÃO DE ESTADO (MEMÓRIA) ---
+# --- ESTADO (MEMÓRIA) ---
 if "last_ai_run" not in st.session_state:
     st.session_state.last_ai_run = 0
 if "ai_result" not in st.session_state:
@@ -49,17 +53,35 @@ if "ai_result" not in st.session_state:
 if "ai_model_used" not in st.session_state:
     st.session_state.ai_model_used = "..."
 
-# --- MAPEAMENTO DE DADOS (PROXY KRAKEN) ---
+# --- CONEXÃO DE DADOS (PROXY INTELIGENTE) ---
 def get_exchange_data():
     return ccxt.kraken()
 
-SYMBOL_MAP = {
-    "BTCUSDT": "BTC/USD",
-    "ETHUSDT": "ETH/USD",
-    "SOLUSDT": "SOL/USD",
-    "XRPUSDT": "XRP/USD",
-    "POLUSDT": "MATIC/USD"
-}
+# Mapeia Bybit -> Kraken (Com fallback automático)
+def resolver_simbolo_ia(symbol_bybit):
+    # Mapa manual para exceções
+    mapa = {
+        "BTCUSDT": "BTC/USD",
+        "ETHUSDT": "ETH/USD",
+        "SOLUSDT": "SOL/USD",
+        "XRPUSDT": "XRP/USD",
+        "BNBUSDT": "BNB/USD",
+        "DOGEUSDT": "DOGE/USD",
+        "ADAUSDT": "ADA/USD",
+        "AVAXUSDT": "AVAX/USD",
+        "DOTUSDT": "DOT/USD",
+        "LINKUSDT": "LINK/USD",
+        "TRXUSDT": "TRX/USD",
+        "POLUSDT": "MATIC/USD"
+    }
+    
+    if symbol_bybit in mapa:
+        return mapa[symbol_bybit]
+    
+    # Tenta converter automaticamente se for uma moeda nova (ex: PEPEUSDT -> PEPE/USD)
+    # Remove 'USDT' do final e adiciona '/USD'
+    base = symbol_bybit.replace("USDT", "")
+    return f"{base}/USD"
 
 # --- FUNÇÕES TÉCNICAS ---
 def calcular_rsi(df, period=14):
@@ -72,38 +94,47 @@ def calcular_rsi(df, period=14):
 def pegar_dados_ia(symbol_bybit):
     try:
         exchange = get_exchange_data()
-        symbol = SYMBOL_MAP.get(symbol_bybit, "BTC/USD")
-        candles = exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50)
+        symbol_kraken = resolver_simbolo_ia(symbol_bybit)
+        
+        # Tenta baixar dados
+        try:
+            candles = exchange.fetch_ohlcv(symbol_kraken, timeframe="15m", limit=50)
+        except:
+            # Se falhar (moeda não listada na Kraken), retorna vazio
+            return pd.DataFrame()
+
         df = pd.DataFrame(candles, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
         df['rsi'] = calcular_rsi(df)
         return df
     except:
         return pd.DataFrame()
 
-# --- IA COM ROTAÇÃO AUTOMÁTICA (FAILOVER) ---
+# --- IA COM FAILOVER ---
 def consultar_ia_inteligente(simbolo, preco, rsi):
-    # Lista de modelos por ordem de preferência (do melhor para o mais rápido)
     modelos = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"]
     
-    api_key = os.getenv("GEMINI_API_KEY") or st.secrets["GEMINI_API_KEY"]
+    # Pega chave do Cloud ou Local
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except:
+        api_key = os.getenv("GEMINI_API_KEY")
+        
     client = genai.Client(api_key=api_key)
 
     prompt = (
-        f"Analise {simbolo}. Preço: ${preco} | RSI: {rsi:.1f}.\n"
-        f"Regra: RSI > 70 (Sobrecompra), RSI < 30 (Sobrevenda).\n"
-        f"Responda CURTO: 1. Veredito (COMPRA/VENDA/NEUTRO). 2. Motivo em 1 frase."
+        f"Analise Crípto: {simbolo}. Preço: ${preco} | RSI: {rsi:.1f}.\n"
+        f"Contexto: RSI > 70 (Sobrecompra/Venda), RSI < 30 (Sobrevenda/Compra).\n"
+        f"Saída Obrigatória: 'VEREDITO: [COMPRA/VENDA/NEUTRO] - [Motivo curto]'"
     )
 
     for modelo in modelos:
         try:
-            # Tenta o modelo atual
             response = client.models.generate_content(model=modelo, contents=prompt)
-            return response.text, modelo # Sucesso! Retorna o texto e o nome do modelo
-        except Exception as e:
-            # Se der erro (cota excedida), o loop continua para o próximo modelo
+            return response.text, modelo
+        except:
             continue
             
-    return "⚠️ Erro: Todos os modelos ocupados. Tente em 1 min.", "Offline"
+    return "⚠️ IA Ocupada. Aguarde...", "Offline"
 
 # --- WIDGET TRADINGVIEW ---
 def mostrar_grafico_tv(symbol):
@@ -133,57 +164,67 @@ def mostrar_grafico_tv(symbol):
 # --- INTERFACE ---
 with st.sidebar:
     st.title("🎛️ Configuração")
-    simbolo = st.selectbox("Ativo", ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"])
+    
+    # SELETOR DE MOEDAS TOP 10 + MANUAL
+    lista_moedas = [
+        "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", 
+        "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "TRXUSDT", "LINKUSDT", 
+        "DOTUSDT", "POLUSDT", "Outro..."
+    ]
+    
+    escolha = st.selectbox("Ativo", lista_moedas)
+    
+    if escolha == "Outro...":
+        simbolo = st.text_input("Digite o Símbolo (ex: PEPEUSDT):", value="PEPEUSDT").upper()
+    else:
+        simbolo = escolha
     
     st.divider()
-    st.subheader("🤖 Controle da IA")
-    # SLIDER DE TEMPO (Otimização de Cota)
-    intervalo_minutos = st.slider("Atualizar IA a cada (minutos):", 1, 60, 5, help="Quanto maior o tempo, menos gasta sua cota gratuita.")
+    st.subheader("🤖 IA Timer")
+    intervalo_minutos = st.slider("Atualizar IA (min):", 1, 60, 5)
     intervalo_segundos = intervalo_minutos * 60
     
     st.divider()
-    if st.button("🔄 Forçar Atualização"):
-        st.session_state.last_ai_run = 0 # Zera o timer para forçar update
+    if st.button("🔄 Forçar Recarga"):
+        st.session_state.last_ai_run = 0
         st.rerun()
 
 # --- LAYOUT PRINCIPAL ---
-st.title(f"Pocket Play | {simbolo}")
+st.header(f"Pocket Play | {simbolo}")
 
-col_grafico, col_dados = st.columns([2, 1]) # Proporção 66% / 33%
+col_grafico, col_dados = st.columns([2, 1])
 
 # Coluna 1: Gráfico
 with col_grafico:
-    st.caption("Visualização em Tempo Real (Bybit)")
     mostrar_grafico_tv(simbolo)
 
-# Coluna 2: Inteligência e Dados
+# Coluna 2: IA
 with col_dados:
-    st.caption("Cérebro Artificial (Gemini)")
-    
     # Lógica do Timer
     agora = time.time()
     tempo_passado = agora - st.session_state.last_ai_run
     
-    # Container da IA
     ia_box = st.container(border=True)
     
     with ia_box:
-        # Se passou o tempo OU é a primeira vez, roda a IA
+        # Verifica se deve rodar a IA
         if tempo_passado > intervalo_segundos:
             df = pegar_dados_ia(simbolo)
             if not df.empty:
                 last = df.iloc[-1]
                 texto, modelo = consultar_ia_inteligente(simbolo, last['close'], last['rsi'])
                 
-                # Salva na memória
                 st.session_state.ai_result = texto
                 st.session_state.ai_model_used = modelo
                 st.session_state.last_ai_run = agora
                 tempo_restante = intervalo_segundos
+            else:
+                st.warning("Dados indisponíveis na fonte IA (Kraken) para este par.")
+                tempo_restante = intervalo_segundos
         else:
             tempo_restante = int(intervalo_segundos - tempo_passado)
 
-        # Exibe o resultado (seja novo ou da memória)
+        # Exibe Resultado
         st.subheader(f"🧠 {st.session_state.ai_model_used}")
         res = st.session_state.ai_result.replace("*", "")
         
@@ -197,6 +238,6 @@ with col_dados:
         st.progress((intervalo_segundos - tempo_restante) / intervalo_segundos)
         st.caption(f"Próxima análise em: {tempo_restante}s")
 
-# Auto-Refresh suave para manter o relógio rodando
-time.sleep(1) 
+# Loop suave
+time.sleep(2) 
 st.rerun()
