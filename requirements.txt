@@ -4,3 +4,4 @@ plotly
 python-dotenv
 pybit
 google-genai
+ccxt
