@@ -63,7 +63,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🟢 INICIAR ROBÔ", use_container_width=True):
         st.session_state.rodando = True
-        st.rerun() # Força o reinício para entrar no IF imediatamente
+        st.rerun() 
     
     if st.button("🔴 PARAR ROBÔ", use_container_width=True):
         st.session_state.rodando = False
@@ -71,7 +71,6 @@ with st.sidebar:
 
 # --- 4. EXECUÇÃO ---
 if st.session_state.rodando:
-    # Quando o robô está ligado, o aviso de "desligado" NÃO aparece
     placeholder_status = st.empty()
     placeholder_status.success(f"📡 Robô Ativo: Monitorando {moeda}")
 
@@ -89,7 +88,6 @@ if st.session_state.rodando:
     session_bybit = HTTP(testnet=False, api_key=API_BYBIT, api_secret=SECRET_BYBIT)
 
     while st.session_state.rodando:
-        # AÇÃO IMEDIATA
         with st.status(f"Analisando {moeda} agora...", expanded=True) as status:
             bp, br = get_data("BTCUSDT", session_bybit)
             mp, mr = get_data(moeda, session_bybit)
@@ -102,11 +100,11 @@ if st.session_state.rodando:
 
                 prompt = f"Analise {moeda} (${mp}, RSI {mr:.0f}) com BTC (${bp}, RSI {br:.0f}) e Book {book_info}. Veredito curto em 1 frase."
                 try:
+                    # USANDO GEMINI 2.5 FLASH CONFORME SOLICITADO
                     resp = client_ia.models.generate_content(model='gemini-2.5-flash', contents=prompt)
                     analise = resp.text
                     txt_ia.info(f"🤖 [{datetime.now().strftime('%H:%M:%S')}] {analise}")
 
-                    # Áudio Neural
                     asyncio.run(gerar_audio_async(analise.replace("*", "")))
                     with open("alerta.mp3", "rb") as f:
                         aud_ia.audio(f.read(), format="audio/mp3", autoplay=True)
@@ -120,4 +118,13 @@ if st.session_state.rodando:
         for i in range(total_segundos, 0, -1):
             if not st.session_state.rodando: 
                 break
-            mins, segs = divmod(i,
+            
+            # --- LINHA CORRIGIDA ABAIXO ---
+            mins, segs = divmod(i, 60) 
+            timer_ia.markdown(f"⏱️ Próxima análise em: **{mins:02d}:{segs:02d}**")
+            time.sleep(1)
+        
+        if not st.session_state.rodando:
+            break
+else:
+    st.warning("💤 O robô está desligado. Configure e clique em 'Iniciar' no menu lateral.")
