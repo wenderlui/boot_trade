@@ -1,5 +1,6 @@
 streamlit
 pandas
+plotly
+python-dotenv
 pybit
 google-genai
-edge-tts
