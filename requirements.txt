@@ -2,6 +2,7 @@ streamlit
 pandas
 plotly
 python-dotenv
-pybit
 google-genai
 ccxt
+requests
+watchdog
