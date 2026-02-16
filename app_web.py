@@ -8,29 +8,31 @@ from pybit.unified_trading import HTTP
 from google import genai
 from datetime import datetime
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA (Sempre a primeira coisa) ---
-st.set_page_config(page_title="Trader AI 2.5", page_icon="📈", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Terminal IA 2.5 Pro", page_icon="⚡", layout="wide")
 
-# --- 2. INICIALIZAÇÃO DE ESTADO (Secrets e Variáveis) ---
+# --- INICIALIZAÇÃO DE ESTADO ---
 if "rodando" not in st.session_state:
     st.session_state.rodando = False
 
-# Carregar Chaves (Prioridade para Secrets do Streamlit Cloud)
+# Tenta carregar as chaves dos Secrets do Streamlit
 try:
-    # Tenta ler do Streamlit Cloud Secrets primeiro
     API_GEMINI = st.secrets["GEMINI_API_KEY"]
     API_BYBIT = st.secrets["BYBIT_API_KEY"]
     SECRET_BYBIT = st.secrets["BYBIT_API_SECRET"]
 except Exception:
-    st.error("⚠️ Erro: Chaves de API não configuradas nos Secrets do Streamlit!")
+    st.error("⚠️ Configura as chaves de API nos 'Secrets' do Streamlit Cloud!")
     st.stop()
 
-# --- 3. FUNÇÕES TÉCNICAS ---
+# --- FUNÇÕES TÉCNICAS ---
 async def gerar_audio_async(texto):
+    """Gera o áudio neural"""
+    caminho = "alerta.mp3"
     comunicador = edge_tts.Communicate(texto, "pt-BR-FranciscaNeural")
-    await comunicador.save("alerta.mp3")
+    await comunicador.save(caminho)
 
 def get_data(symbol, session):
+    """Busca Preço e RSI"""
     try:
         t = session.get_tickers(category="linear", symbol=symbol)
         p = float(t['result']['list'][0]['lastPrice'])
@@ -42,72 +44,86 @@ def get_data(symbol, session):
         return p, rsi
     except: return None, None
 
-# --- 4. INTERFACE VISUAL (Desenhada ANTES de qualquer loop) ---
-st.title("🤖 Terminal Trader AI - Gemini 2.5")
+def get_order_book(symbol, session):
+    """Analisa pressão do Book"""
+    try:
+        book = session.get_orderbook(category="linear", symbol=symbol, limit=20)
+        v_c = sum([float(x[1]) for x in book['result']['b']])
+        v_v = sum([float(x[1]) for x in book['result']['a']])
+        ratio = v_c / v_v if v_v > 0 else 1.0
+        status = "Compra Forte" if ratio > 1.3 else "Venda Forte" if ratio < 0.7 else "Neutro"
+        return f"{status} (C: {v_c:.1f} | V: {v_v:.1f})"
+    except: return "Book Indisponível"
 
-# Barra Lateral
+# --- INTERFACE ---
+st.title("🚀 Terminal Trader IA 2.5 - Web Edition")
+
 with st.sidebar:
-    st.header("⚙️ Painel de Controlo")
-    moeda = st.selectbox("Escolha a Moeda", ["POLUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT", "PEPEUSDT"])
+    st.header("⚙️ Configurações")
+    moeda = st.selectbox("Moeda Alvo", ["POLUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT", "PEPEUSDT", "SUIUSDT"])
     
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("🟢 INICIAR", use_container_width=True):
-            st.session_state.rodando = True
-    with col_btn2:
-        if st.button("🔴 PARAR", use_container_width=True):
-            st.session_state.rodando = False
+    # OPÇÃO DE TEMPO (O que pediste)
+    tempo_analise = st.slider("Intervalo de Análise (Minutos)", min_value=1, max_value=60, value=5)
+    
+    st.markdown("---")
+    if st.button("🟢 INICIAR ROBÔ", use_container_width=True):
+        st.session_state.rodando = True
+    if st.button("🔴 PARAR ROBÔ", use_container_width=True):
+        st.session_state.rodando = False
+        st.rerun()
 
-# Área de Exibição (Métricas)
-col1, col2 = st.columns(2)
-metric_btc = col1.empty()
-metric_alvo = col2.empty()
+# Espaços reservados para os dados (evita que a página "pule")
+col1, col2, col3 = st.columns(3)
+m_btc = col1.empty()
+m_alvo = col2.empty()
+m_book = col3.empty()
 
-st.markdown("---")
-st.subheader("🧠 Análise em Tempo Real")
-area_texto = st.empty()
-area_audio = st.empty()
+st.subheader("📝 Relatório da Inteligência Artificial")
+txt_ia = st.empty()
+aud_ia = st.empty()
+progresso_espera = st.empty()
 
-# --- 5. LÓGICA DE EXECUÇÃO ---
+# --- LÓGICA PRINCIPAL ---
 if st.session_state.rodando:
-    # Inicializa as APIs
     client_ia = genai.Client(api_key=API_GEMINI)
     session_bybit = HTTP(testnet=False, api_key=API_BYBIT, api_secret=SECRET_BYBIT)
 
-    # LOOP DO ROBÔ
     while st.session_state.rodando:
-        with st.spinner(f"A analisar {moeda}..."):
-            # Pegar Dados
+        # 1. ANALISA IMEDIATAMENTE
+        with st.spinner("📡 A capturar dados do mercado..."):
             bp, br = get_data("BTCUSDT", session_bybit)
             mp, mr = get_data(moeda, session_bybit)
+            book = get_order_book(moeda, session_bybit)
 
             if bp and mp:
-                # Atualizar Visual
-                metric_btc.metric("Bitcoin (BTC)", f"${bp:,.2f}", f"RSI: {br:.0f}")
-                metric_alvo.metric(f"Alvo ({moeda})", f"${mp:,.4f}", f"RSI: {mr:.0f}")
+                m_btc.metric("Bitcoin (BTC)", f"${bp:,.2f}", f"RSI: {br:.0f}")
+                m_alvo.metric(f"Alvo ({moeda})", f"${mp:,.4f}", f"RSI: {mr:.0f}")
+                m_book.info(f"📊 {book}")
 
-                # Consultar IA (Gemini 2.5)
-                prompt = f"Analise {moeda} (${mp}, RSI {mr:.0f}) com BTC (${bp}, RSI {br:.0f}). Responda curto: Veredito e Motivo."
+                # Consulta Gemini 2.5
+                prompt = f"Analise {moeda} (${mp}, RSI {mr:.0f}) com BTC (${bp}, RSI {br:.0f}) e Book {book}. Veredito curto em 1 frase."
                 try:
                     resp = client_ia.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                    texto_ia = resp.text
-                    area_texto.success(f"[{datetime.now().strftime('%H:%M:%S')}] {texto_ia}")
+                    analise = resp.text
+                    txt_ia.success(f"🤖 [{datetime.now().strftime('%H:%M:%S')}] {analise}")
 
-                    # Áudio Neural
-                    asyncio.run(gerar_audio_async(texto_ia.replace("*", "")))
+                    # Áudio
+                    asyncio.run(gerar_audio_async(analise.replace("*", "")))
                     with open("alerta.mp3", "rb") as f:
-                        area_audio.audio(f.read(), format="audio/mp3", autoplay=True)
+                        aud_ia.audio(f.read(), format="audio/mp3", autoplay=True)
                 except Exception as e:
                     st.error(f"Erro na IA: {e}")
 
-            # Contagem Regressiva Visual (5 Minutos)
-            tempo_espera = 300
-            placeholder_timer = st.empty()
-            for i in range(tempo_espera, 0, -1):
-                if not st.session_state.rodando: break
-                mins, segs = divmod(i, 60)
-                placeholder_timer.caption(f"⏱️ Próxima atualização em {mins:02d}:{segs:02d}")
-                time.sleep(1)
-            placeholder_timer.empty()
+        # 2. ESPERA PELO PRÓXIMO CICLO (Com contagem visual)
+        total_segundos = tempo_analise * 60
+        for i in range(total_segundos, 0, -1):
+            if not st.session_state.rodando: break
+            
+            minutos, segundos = divmod(i, 60)
+            progresso_espera.write(f"⏱️ Próxima análise em: **{minutos:02d}:{segundos:02d}**")
+            time.sleep(1)
+        
+        progresso_espera.empty()
+
 else:
-    st.info("O robô está parado. Use o painel lateral para iniciar.")
+    st.warning("💤 O robô está desligado. Configura e clica em 'Iniciar' no menu lateral.")
