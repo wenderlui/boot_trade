@@ -309,5 +309,6 @@ with col_dados:
             st.caption("O gráfico visual (Bybit) continua funcionando, mas a IA precisa de dados da Kraken/Coinbase.")
 
 # Auto-refresh lento para atualizar o contador
-time.sleep(3) 
+time.sleep(10) 
 st.rerun()
+
