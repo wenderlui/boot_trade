@@ -166,10 +166,11 @@ def consultar_ia_inteligente(simbolo, preco, rsi, prob_alta):
         try:
             response = client.models.generate_content(model=modelo, contents=prompt)
             return response.text, modelo
-        except:
-            continue
+   except Exception as e:
+            # Isso vai mostrar o erro REAL na tela
+            return f"⚠️ ERRO TÉCNICO: {str(e)}", "Erro Real"
             
-    return "⚠️ IA Indisponível (Cota). Tente em breve.", "Offline"
+    return "⚠️ Falha Total: Nenhuma IA respondeu.", "Offline"
 
 # --- WIDGET TRADINGVIEW ---
 def mostrar_grafico_tv(symbol):
@@ -311,5 +312,6 @@ with col_dados:
 # Auto-refresh lento para atualizar o contador
 time.sleep(240) 
 st.rerun()
+
 
 
